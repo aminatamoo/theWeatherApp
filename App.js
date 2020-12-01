@@ -1,157 +1,193 @@
 //import { NavigationContainer } from '@react-navigation/native';
 //import { createStackNavigator } from '@react-navigation/stack';
 import { StatusBar } from 'expo-status-bar';
-import React, { useState } from 'react';
+import React, { useState, useCallback, useEffect } from 'react';
 import { StyleSheet, Text, View, SafeAreaView, FlatList } from 'react-native';
-
-const hourlyForecasts = [
-  { dt:1606258800, time: "6", forecast: "V. Cloudy", precipitation: "0%", temperature: "15" },
-  { dt:1606262400, time: "6", forecast: "¯\\_(ツ)_/¯", precipitation: "0%", temperature: "15" },
-  { dt:1606266000, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606269600, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606273200, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276801, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276802, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276803, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276804, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276805, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276806, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276807, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276808, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276809, time: "6", forecast: "clear", precipitation: "0%", temperature: "15" },
-  { dt:1606276810, time: "6", forecast: "M. Cloudy", precipitation: "0%", temperature: "15" },
-]
-
-const weatherResponse = [
-  { dt:"1606258800", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606262400", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606266000", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606269600", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606273200", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276801", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276802", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276803", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276804", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276805", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276806", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276807", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276808", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276809", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-  { dt:"1606276810", time: "6", clouds: 90, humidity: "0%", temp: "15" },
-]
-
-function formatTime(s, timeZone) {
-  const dtFormat = new Intl.DateTimeFormat('en-GB', {
-    weekday: 'long',
-    day: 'numeric',
-    month: 'short',
-    hour: 'numeric', 
-    timeZone: timeZone
-  });
-  
-  return dtFormat.format(new Date(s * 1e3));
-}
-
-function cloudConverter(percent) {
-  switch(true) {
-    case (percent >= 0 && percent < 6):
-      return "Clear"  
-    case (percent >= 6  && percent < 26):
-      return "Mostly Clear"  
-    case (percent >= 26  && percent < 51):
-      return "Partly Cloudy"  
-    case (percent >= 51  && percent < 70):
-      return "Mostly Cloudy"  
-    case (percent >= 70  && percent < 88):
-      return "Very Cloudy"  
-    default:
-      return "¯\\_(ツ)_/¯"
-  }
-}
-
-function parseWeatherResponse(weatherResponse) {
-
-  const timeZone = weatherResponse.current.timezone
-
-  const currentTemp = weatherResponse.current.temp
-  console.log(currentTemp)
-
-  const mainWeatherDescription = weatherResponse.current.weather.main
-
-  const feelsLike = weatherResponse.current.feels_like
-    
-  const currentWindSpeed = weatherResponse.current.wind_speed
-  console.log(currentWindSpeed)
-  
-  const currentHumidity = weatherResponse.current.humidity
-  console.log(currentHumidity)
-  
-  const hourlyMetrics =  weatherResponse.hourly.map(({dt, temp, clouds, humidity}) => ({dt, temp, clouds, humidity}))
-  
-  console.log(hourlyMetrics)
-}
+import * as Location from 'expo-location';
+import { MaterialCommunityIcons } from '@expo/vector-icons';
+import { API_KEY } from './secrets/secret.js';
 
 export default function App() {
 
-  const [ weatherProperties, setWeatherProperties ] = useState({})
+  const [ lon, setLon ] = useState(-0.118092)
+  const [ lat, setLat ] = useState(51.509865)
+  const [ weather, setWeather ] = useState(null)
+  const [ hourlyMetrics, setHourlyMetrics ] = useState(null)
+  const [ errorMessage, setErrorMessage ] = useState(null)
+  const [ location, setLocation ] = useState("London")
 
-  //const fetchWeatherProperties = useCallback( async (lat,lon,key) => {
-  //  const result = await fetch(
-  //  'https://api.openweathermap.org/data/2.5/onecall?lat=${lat}&lon=${lon}&exclude=minutely,daily,alerts&units=metric&appid=${key}'
-  //);
-  //const data = await result.json()
-  //setWeatherProperties(data)
-  //}, [] )
+  const cloudConverter = useCallback( (percent) => {
+    switch(true) {
+      case (percent >= 0 && percent < 6):
+        return "Clear"
+      case (percent >= 6  && percent < 26):
+        return "Mostly Clear"
+      case (percent >= 26  && percent < 51):
+        return "Partly Cloudy"
+      case (percent >= 51  && percent < 70):
+        return "Mostly Cloudy"
+      case (percent >= 70):
+        return "Very Cloudy"  
+      default:
+        return "¯\\_(ツ)_/¯"
+    }
+  }, [])
+
+  const getColors = useCallback( (weatherMain) => {
+    switch(true) {
+      case (weatherMain == "Drizzle" || weatherMain == "Rain" || weatherMain == "Snow" || weatherMain == "Clouds"):
+        return ["#123285", "#E5E5E5"]
+      case (weatherMain == "Clear"):
+        return ["#DCBA32", "#000000"]
+      case (weatherMain == "Thunderstorm" || weatherMain == "Tornado" || weatherMain == "Fog"):
+        return ["#000000", "#E5E5E5"]
+      default:
+        return ["#D02A02", "#000000"]
+    }
+  }, [])
 
 
-  return (
-    <View style={styles.wrapperContainer}>
-      <View style={styles.lineOne}/>
-      <View style={styles.container}>
-        <Text style={styles.locationStyle}>London</Text>
-        <Text style={styles.dateStyle}>Tuesday, Nov 24</Text>
-        <Text style={styles.temperature}>15&deg;</Text>
-        <View style={styles.descriptionTempRow}>
-          <Text style={styles.descriptionTempText}>It's Cold</Text>
-          <Text style={styles.descriptionTempText}>Feels Like: 12&deg;</Text>
+  useEffect(() => {
+    fetchWeather();
+  }, [])
+
+  const fetchWeather = useCallback(async () => {
+    try {
+      let { status } = await Location.requestPermissionsAsync()
+
+      if (status !== 'granted') {
+          setErrorMessage('Access to location is needed to run the app')
+          return
+      }
+      const location = await Location.getCurrentPositionAsync()
+
+      const { latitude, longitude} = location.coords
+
+      setLon(longitude)
+      setLat(latitude)
+
+      const result = await fetch(
+        `https://api.openweathermap.org/data/2.5/onecall?lat=${latitude}&lon=${longitude}&exclude=minutely,daily,alerts&units=metric&appid=${API_KEY}`
+      );
+      if (result.ok) {
+        const data = await result.json()
+        setWeather(data)
+      } else {
+        setErrorMessage(result.message)
+        //alert(JSON.stringify(result))
+      }
+
+    } catch (error) {
+      alert(error)
+    }
+  }, [])
+
+  const convertToCity = useCallback( async (longitude, latitude) => {
+    try {
+      const result = await fetch(
+        `https://api.bigdatacloud.net/data/reverse-geocode-client?latitude=${latitude}&longitude=${longitude}&localityLanguage=en`
+      );
+      if (result.ok) {
+        const data = await result.json()
+        setLocation(data.city)
+      } else {
+        setErrorMessage(result.message)
+      }
+
+    } catch (error) {
+      alert(error)
+      return "London"
+    }
+  }, [])
+
+
+  if (weather) {
+    const { timezone, current: { dt, temp, feels_like, humidity, wind_speed, weather: [ details ] }, hourly: forecasts } = weather
+    const { main, icon } = details
+    const hourlyForecasts = forecasts.map(({dt, temp, clouds, humidity}) => ({dt, temp, clouds, humidity}))
+
+    const dateFormat = new Intl.DateTimeFormat('en-GB', {
+      weekday: 'long',
+      day: 'numeric',
+      month: 'short',
+      timeZone: 'Europe/London'
+    })
+
+    const timeFormat = new Intl.DateTimeFormat('en-GB', {
+      hour: 'numeric',
+      hour12: true,
+      timeZone: 'Europe/London'
+    })
+
+    const cityLocation = convertToCity(lon, lat)
+    const [ backgroundColor, textColor ] = getColors(main)
+
+    return (
+      <View style={[styles.wrapperContainer, {backgroundColor: backgroundColor}]}>
+        <View style={[styles.lineOne, {borderColor: textColor}]}/>
+        <View style={styles.container}>
+          <Text style={[styles.locationStyle, {color: textColor}]}>{location}</Text>
+          <Text style={[styles.dateStyle, {color: textColor}]}>{dateFormat.format(new Date(dt * 1e3))}</Text>
+          <Text style={[styles.temperature, {color: textColor}]}>{Math.round(temp)}&deg;</Text>
+          <View style={styles.descriptionTempRow}>
+            <Text style={[styles.descriptionTempText, { textTransform: "capitalize" }, {color: textColor}]}>{main}</Text>
+            <Text style={[styles.descriptionTempText, {color: textColor}]}>Feels Like: {Math.round(feels_like)}&deg;</Text>
+          </View>
+          <View style={styles.windsPrecipRow}>
+            <Text style={[styles.windSpeedHum, {color: textColor}]}>Wind Speed: {wind_speed} m/s</Text>
+            <Text style={[styles.windSpeedHum, {color: textColor}]}>Humidity: {humidity}%</Text>
+          </View>
+          <Text style={[styles.hourly, {color: textColor}]}>Hourly</Text>
         </View>
-        <View style={styles.windsPrecipRow}>
-          <Text style={styles.windSpeedHum}>Wind Speed</Text>
-          <Text style={styles.windSpeedHum}>Humidity: 67%</Text>
+        <View style={[styles.lineTwo, {borderColor: textColor}]}/>
+        <View style={{flex:3}}>
+          <FlatList
+          //contentContainerStyle={{flex:1}}
+            keyExtractor={(item, index) => index.toString()}
+            renderItem={({ item }) => (
+              <View style={styles.hourForcastContainer}>
+                <Text style={[styles.hourForecast, { textTransform: "uppercase" }, {color: textColor}]}>{timeFormat.format(new Date(item.dt * 1e3))}</Text>
+                <Text style={[styles.hourForecast, {color: textColor}]}>{cloudConverter(item.clouds)}</Text>
+                <Text style={[styles.hourForecast, {color: textColor}]}>{item.humidity}%</Text>
+                <Text style={[styles.hourForecast, {color: textColor}]}>{Math.round(item.temp)}&deg;C</Text>
+              </View>
+            )}
+            data={hourlyForecasts}
+          />
         </View>
-        <Text style={styles.hourly}>Hourly</Text>
       </View>
-      <View style={styles.lineTwo}/>
-      <View style={{flex:3}}>
-        <FlatList
-        //contentContainerStyle={{flex:1}}
-          keyExtractor={(item, index) => index.toString()}
-          renderItem={({ item }) => (
-            <View style={styles.hourForcastContainer}>
-              <Text style={styles.hourForecast}>{item.time} PM</Text>
-              <Text style={styles.hourForecast}>{item.forecast}</Text>
-              <Text style={styles.hourForecast}>{item.precipitation}</Text>
-              <Text style={styles.hourForecast}>{item.temperature}&deg;C</Text>
-            </View>
-          )}
-          data={hourlyForecasts}
-        />
+    );
+  } else {
+    
+    return (
+      <View style={styles.errorContainer}>
+          <Text style={styles.errorText}>Getting the Weather...</Text>
+          <StatusBar style="auto" />
       </View>
-    </View>
-  );
+    )
+  }
 }
 
 const styles = StyleSheet.create({
   wrapperContainer: {
     flex: 1,
+  },
+  errorContainer: {
+    flex: 1,
     backgroundColor: "#D02A02",
+    alignItems: 'center',
+    justifyContent: 'center',
+  },
+  errorText: {
+    fontSize: 50,
+    fontWeight: "700",
+    textAlign: "center",
   },
   lineOne: {
     flex: 1,
     marginLeft: 25,
     marginRight: 25,
     marginTop: 10,
-    borderBottomColor: 'black',
     borderBottomWidth: 3,
     //borderColor:'white',
     //borderWidth:2,
@@ -160,16 +196,11 @@ const styles = StyleSheet.create({
     flex: 0.3,
     marginLeft: 25,
     marginRight: 25,
-    borderTopColor: 'black',
     borderTopWidth: 2,
-    //borderColor:'white',
-    //borderWidth:2,
   },  
   container: {
     flex: 7,
     justifyContent: 'center',
-    //borderColor:'white',
-    //borderWidth:2,
     marginLeft: 25,
     marginRight: 25,
     paddingTop: 10,
@@ -182,8 +213,6 @@ const styles = StyleSheet.create({
     justifyContent: 'center',
     marginLeft: 25,
     marginRight: 25,
-    //borderColor:'white',
-    //borderWidth:2,
   },
   hourForecast: {
     flex: 1,
@@ -207,14 +236,13 @@ const styles = StyleSheet.create({
     flex: 4,
     fontSize: 200,
     fontWeight: "900",
-    paddingTop: 10,
+    paddingTop: 5,
     marginBottom:5
   },
   descriptionTempRow: {
     flex: 1,
     flexDirection: "row",
     marginBottom: 5,
-    //paddingLeft: 10,
   },
   descriptionTempText: {
     flex: 1,
@@ -225,7 +253,6 @@ const styles = StyleSheet.create({
   windsPrecipRow: {
     flex: 1,
     flexDirection: "row",
-    //paddingLeft: 10,
   },
   dateStyle: {
     marginBottom: 8,
